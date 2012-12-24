@@ -121,9 +121,10 @@ namespace BPMAnalyzer
 		static void Main(string[] args)
 		{
 			if(args.Length<1){
-				Console.WriteLine("usage: BPMAnalyzer <filename>.wav");
+				Console.WriteLine("Usage: BPMAnalyzer <filename>.wav");
 				return;
 			}
+
 			var waveFile=new WaveFile(args[0]);
 			
 			const int frameSize=1024;
@@ -140,34 +141,27 @@ namespace BPMAnalyzer
 			var prev=0.0;
 			var diff=(from v in volume let temp=prev select Math.Max((prev=v)-temp,0.0)).ToArray();
 			
-			var a=new double[240-60+1];
-			var b=new double[a.Length];
-			var r=new double[a.Length];
-			for(int i=0;i<a.Length;i++){
-				double sum1=0,sum2=0,freq=(i+60)/60.0;
-				var theta=2.0*Math.PI*freq/frameCount;
-				for(int n=0;n<diff.Length;n++){
-					var window=HannWindow(n,diff.Length);
-					sum1+=diff[n]*Math.Cos(theta*n)*window;
-					sum2+=diff[n]*Math.Sin(theta*n)*window;
-				}
-				a[i]=sum1/sampleCount;
-				b[i]=sum2/sampleCount;
-				r[i]=Math.Sqrt(a[i]*a[i]+b[i]*b[i]);
-			}
+			var indices=Enumerable.Range(0,diff.Length).AsParallel();
+			var r=(from i in Enumerable.Range(0,181)
+				   let freq=(i+60)/60.0
+				   let theta=2.0*Math.PI*freq/frameCount
+				   let cosSum=indices.Sum(index=>HannWindow(index,diff.Length)*Math.Cos(theta*index)*diff[index])/sampleCount
+				   let sinSum=indices.Sum(index=>HannWindow(index,diff.Length)*Math.Sin(theta*index)*diff[index])/sampleCount
+				   select new{A=cosSum,B=sinSum,R=Math.Sqrt(cosSum*cosSum+sinSum*sinSum)}).ToArray();
 
-			var peaks=FindPeak(r,3);
-			for(int index=0;index<peaks.Length;index++){
-				Console.WriteLine("[{0}]",index+1);
-				int bpm=peaks[index]+60;
-				Console.WriteLine("peak bmp: {0}",bpm);
-				var theta=Math.Atan2(b[peaks[index]],a[peaks[index]]);
+			var peaks=FindPeak(r.Select(obj=>obj.R).ToArray(),3);
+
+			for(int i=0;i<peaks.Length;i++){
+				Console.WriteLine("[{0}]",i+1);
+				int bpm=peaks[i]+60;
+				Console.WriteLine("Peak BPM: {0}",bpm);
+				var theta=Math.Atan2(r[peaks[i]].B,r[peaks[i]].A);
 				if(theta<0) theta+=2.0*Math.PI;
 				var peakFreq=(double)bpm/60;
 				var startTime=theta/(2.0*Math.PI*peakFreq);
 				var startBeat=theta/(2.0*Math.PI);
-				Console.WriteLine("first beat time: {0} sec",startTime);
-				Console.WriteLine("first beat: {0} beat",startBeat);
+				Console.WriteLine("First beat time: {0} sec",startTime);
+				Console.WriteLine("First beat: {0} beat",startBeat);
 			}
 		}
 	}
